@@ -1,9 +1,0 @@
-/__pycache__
-/*.bak
-/pyACA/__pycache__
-/.spyproject
-/.vs/pyACA/v16/*.suo
-/build/lib/pyACA
-/dist
-/pyACA.egg-info
-/pyACA/*.bak
