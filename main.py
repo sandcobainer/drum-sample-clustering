@@ -55,6 +55,7 @@ def run(complete_path):
             w = Windowing()
             spec = Spectrum()
             centroid = Centroid(range=22050)
+            rolloff = R
 
             # compute the centroid for all frames in our audio and add it to the pool
             for frame in FrameGenerator(audio, frameSize = 1024, hopSize = 512):
@@ -65,7 +66,7 @@ def run(complete_path):
             aggrpool = PoolAggregator(defaultStats = [ 'mean'])(pool) #,'stdev' ])(pool)
 
             # write aggrpool to dict
-            result = pool_to_array(aggrpool)
+            result = pool_to_array(aggrpool)w
             print(result)
 
             # loader = essentia.standard.MonoLoader(complete_path + file)
