@@ -31,21 +31,23 @@ def pool_to_array(pool, include_descs=None, ignore_descs=None):
         descs = [d for d in descs if not isMatch(d, ignore_descs)]
 
     # let's start with 10 features
-    result = np.zeros(10) 
-    i=0
+    result = []
+    i = 0
     # append everything to dict result
     for d in descs:
         value = pool[d]
         print(value)
         if type(value) is np.ndarray:
             value = value.tolist()
-        result[i] = value
+            continue
+        print(i)
+        result.append(value)
         i+=1
         #add_to_dict(result, keys, value)
     return result
 
 def compute_features(complete_path):
-    result = np.array([])
+    result = []
     # for loop over files
     for file in os.listdir(complete_path):
         if file.endswith(".wav"):
@@ -112,8 +114,8 @@ def compute_features(complete_path):
             aggrpool = es.PoolAggregator(defaultStats = [ 'mean'])(pool) #,'stdev' ])(pool)
             # write aggrpool to dict
             aggr_np = pool_to_array(aggrpool)
-
-            result = np.append(result, aggr_np)
+            print(aggr_np)
+            result.append(aggr_np)
             
     return result
 
@@ -122,4 +124,4 @@ def compute_features(complete_path):
 
 if __name__ == '__main__':
     features = compute_features('./samples/')
-    print(features.shape)
+    print(features)
