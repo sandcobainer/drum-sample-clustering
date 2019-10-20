@@ -1,9 +1,17 @@
 import matplotlib.pyplot as plt 
-import numpy as np
+import pandas as pd
+
 import os
 import sys
-sys.path.append('/usr/local/lib/python3/dist-packages/')
+from scipy import stats
+from sklearn import preprocessing
+from sklearn.decomposition import PCA
 
+import argparse
+import random
+import time
+
+from pythonosc import udp_client
 import essentia
 import essentia.standard as es
 
@@ -15,6 +23,12 @@ def isMatch(name, patterns):
         if fnmatch.fnmatch(name, pattern):
             return True
     return False
+
+def normalize_zscore(featureData):    
+    mu = np.mean(featureData,axis=1)    
+    std = np.std(featureData,axis=1)
+    normFeatureData = ((featureData.transpose() - mu) / std).transpose()    
+    return normFeatureData
 
 def add_to_dict(dict, keys, value):
     for key in keys[:-1]:
@@ -31,31 +45,34 @@ def pool_to_array(pool, include_descs=None, ignore_descs=None):
         descs = [d for d in descs if not isMatch(d, ignore_descs)]
 
     # let's start with 10 features
-    result = np.zeros(10) 
-    i=0
+    result = []
+    i = 0
     # append everything to dict result
     for d in descs:
         value = pool[d]
-        print(value)
-        if type(value) is np.ndarray:
-            value = value.tolist()
-        result[i] = value
+        
+        result.append(value)
         i+=1
         #add_to_dict(result, keys, value)
     return result
 
 def compute_features(complete_path):
-    result = np.array([])
+    result = []
+    meta_result = []
+    file_count = 0;
     # for loop over files
     for file in os.listdir(complete_path):
         if file.endswith(".wav"):
-            print(file)
+            file_count+=1
+            print(file +' : ' + str(file_count))
+
             # load our audio into an array
             audio = es.MonoLoader(filename=complete_path + file, sampleRate=44100)()
 
             # create the pool and the necessary algorithms
             pool = essentia.Pool()
             window = es.Windowing()
+            energy = es.Energy()
             spectrum = es.Spectrum()
             centroid = es.Centroid(range=22050)
             rolloff = es.RollOff()
@@ -66,6 +83,9 @@ def compute_features(complete_path):
             flux = es.Flux()
             barkbands = es.BarkBands( sampleRate = 44100)
             zerocrossingrate = es.ZeroCrossingRate()
+
+            meta = es.MetadataReader(filename=complete_path + file, failOnError=True)()
+            pool_meta, duration, bitrate, samplerate, channels = meta[7:]
             
             # centralmoments = es.SpectralCentralMoments()
             # distributionshape = es.DistributionShape()
@@ -90,6 +110,7 @@ def compute_features(complete_path):
                 rms = rmse(frame_spectrum)
                 pool.add('RMS', rms)
 
+                pool.add('spectral_energy', energy(frame_spectrum))
                 # (frame_melbands, frame_mfcc) = mfcc(frame_spectrum)
                 # pool.add('frame_MFCC', frame_mfcc)
 
@@ -109,17 +130,47 @@ def compute_features(complete_path):
                 # pool.add('spectral_skewness', frame_skewness)
 
             # aggregate the results (find mean if needed)
-            aggrpool = es.PoolAggregator(defaultStats = [ 'mean'])(pool) #,'stdev' ])(pool)
-            # write aggrpool to dict
-            aggr_np = pool_to_array(aggrpool)
-
-            result = np.append(result, aggr_np)
+            aggrpool = es.PoolAggregator(defaultStats = ['mean'])(pool) #,'stdev' ])(pool)
             
-    return result
+            pool_meta.set("duration", duration)
+            pool_meta.set("filename", os.path.relpath(file))
+
+            # write pools to lists
+            pool_arr = pool_to_array(aggrpool)
+            result.append(pool_arr)
+
+            meta_arr = pool_to_array(pool_meta)
+            meta_result.append(meta_arr)
+         
+    features_df = pd.DataFrame.from_records(result)
+    features_df.columns = ['rms', 'crest','flux','roll off','centroid','energy','strong peak','zcr']
+    
+    meta_df = pd.DataFrame.from_records(meta_result)
+    meta_df.columns = ['duration','filename','metadata.tags.comment']
+    del meta_df['metadata.tags.comment']
+
+    return features_df,meta_df
 
 # See all feature names in the pool in a sorted order
 # print(sorted(features.descriptorNames()))
 
 if __name__ == '__main__':
-    features = compute_features('./samples/')
-    print(features.shape)
+    features,metadata = compute_features('./testsamples/')
+   
+    # normalized_features = preprocessing.normalize(features,axis =1)
+    features = preprocessing.StandardScaler().fit_transform(features)
+    standardized_features = pd.DataFrame(features, columns = ['rms', 'crest','flux','roll off','centroid','energy','strong peak','zcr'])
+    pca = PCA(n_components=2)
+    principalComponents = pca.fit_transform(standardized_features)
+
+    principalDf = pd.DataFrame(data = principalComponents
+             , columns = ['pc_1', 'pc_2'])
+    osc_df = pd.concat([principalDf,metadata],axis = 1)
+
+    client = udp_client.SimpleUDPClient('127.0.0.1', 7400)
+    for index, row in osc_df.iterrows():
+        client.send_message("/pca", [ row['filename'], row['pc_1'], row['pc_2'] ] )
+
+    # plt.scatter(principalDf.pc_1,principalDf.pc_2)
+    # plt.show()
+   
