@@ -6,6 +6,7 @@ import sys
 from scipy import stats
 from sklearn import preprocessing
 from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
 
 import argparse
 import random
@@ -59,12 +60,12 @@ def pool_to_array(pool, include_descs=None, ignore_descs=None):
 def compute_features(complete_path):
     result = []
     meta_result = []
-    file_count = 0;
+    file_count = 0
     # for loop over files
     for file in os.listdir(complete_path):
         if file.endswith(".wav"):
             file_count+=1
-            print(file +' : ' + str(file_count))
+            # print(file +' : ' + str(file_count))
 
             # load our audio into an array
             audio = es.MonoLoader(filename=complete_path + file, sampleRate=44100)()
@@ -143,7 +144,7 @@ def compute_features(complete_path):
             meta_result.append(meta_arr)
          
     features_df = pd.DataFrame.from_records(result)
-    features_df.columns = ['rms', 'crest','flux','roll off','centroid','energy','strong peak','zcr']
+    features_df.columns = ['centroid', 'crest','roll off','strong peak','rms','energy','flux','zcr']
     
     meta_df = pd.DataFrame.from_records(meta_result)
     meta_df.columns = ['duration','filename','metadata.tags.comment']
@@ -155,22 +156,35 @@ def compute_features(complete_path):
 # print(sorted(features.descriptorNames()))
 
 if __name__ == '__main__':
-    features,metadata = compute_features('./testsamples/')
+    features,metadata = compute_features('./samples/')
    
     # normalized_features = preprocessing.normalize(features,axis =1)
     features = preprocessing.StandardScaler().fit_transform(features)
-    standardized_features = pd.DataFrame(features, columns = ['rms', 'crest','flux','roll off','centroid','energy','strong peak','zcr'])
+    standardized_features = pd.DataFrame(features, columns = ['centroid', 'crest','roll off','strong peak','rms','energy','flux','zcr'])
+    
     pca = PCA(n_components=2)
     principalComponents = pca.fit_transform(standardized_features)
+    principalComponents = preprocessing.MinMaxScaler().fit_transform(principalComponents)
+    
+    principal_df = pd.DataFrame(data = principalComponents
+             ,columns = ['pc_1', 'pc_2'])
+    
+    print(principal_df.head())
+    kmeans = KMeans(n_clusters=4).fit(principal_df)
+    centroids = kmeans.cluster_centers_
+    plt.scatter(principal_df['pc_1'], principal_df['pc_2'], c= kmeans.labels_.astype(float), s=50, alpha=0.5)
+    plt.scatter(centroids[:, 0], centroids[:, 1], c='red', s=50)
 
-    principalDf = pd.DataFrame(data = principalComponents
-             , columns = ['pc_1', 'pc_2'])
-    osc_df = pd.concat([principalDf,metadata],axis = 1)
+    df = pd.concat([principal_df,metadata],axis = 1)
+    df = df.sort_values('filename')
 
     client = udp_client.SimpleUDPClient('127.0.0.1', 7400)
-    for index, row in osc_df.iterrows():
-        client.send_message("/pca", [ row['filename'], row['pc_1'], row['pc_2'] ] )
 
-    # plt.scatter(principalDf.pc_1,principalDf.pc_2)
-    # plt.show()
+    count = 1
+    for index,row in df.iterrows():
+        print( count, "pca." + str(count), row['filename'], row['pc_1'], row['pc_2'])
+        client.send_message("/pca", [ count, "pca."+str(count), row['pc_1']*500, row['pc_2']*500,row['filename'] ] )
+        count+=1
+
+    plt.show()
    
